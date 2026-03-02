@@ -1,5 +1,5 @@
 {
-  "description": "Public inputs for deposit proof fixture (Alice sk=42, amount=100000000, salt=12345)",
+  "description": "Public inputs for deposit proof test fixture",
   "publicInputs": [
     "0x2a711793ab8f5e5050f59b872365ad644e115ad50a23796e6bca4edfa98ac4cd",
     "0x0000000000000000000000000000000000000000000000000000000005f5e100",

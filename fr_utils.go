@@ -8,15 +8,27 @@
 // The verifier supports circuits with up to 2^28 gates and handles arithmetic,
 // permutation, lookup, delta range, elliptic curve, auxiliary, and Poseidon2
 // relation checks.
+//
+// # Proof byte malleability
+//
+// Field elements in the proof are deserialized with automatic modular reduction
+// (matching gnark-crypto's fr.Element.SetBytes). This means two byte-distinct
+// proofs can verify identically if they differ only by multiples of the field
+// modulus. If your application deduplicates by raw proof bytes, reject elements
+// >= the BN254 scalar field modulus at the integration layer.
 package honk
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 )
+
+// errDivisionByZero is returned when a field inversion or division by zero is attempted.
+var errDivisionByZero = errors.New("honk: division by zero field element")
 
 // negHalfModP = (P - 1) / 2, used in the arithmetic relation accumulator.
 var negHalfModP fr.Element
@@ -73,25 +85,32 @@ func frSqr(a fr.Element) fr.Element {
 	return r
 }
 
-func frInv(a fr.Element) fr.Element {
+// frInv computes the modular inverse of a. Returns errDivisionByZero if a is zero.
+func frInv(a fr.Element) (fr.Element, error) {
 	var zero fr.Element
 	if a == zero {
-		panic("honk: inverse of zero field element")
+		return zero, errDivisionByZero
 	}
 	var r fr.Element
 	r.Inverse(&a)
-	return r
+	return r, nil
 }
 
-func frDiv(a, b fr.Element) fr.Element {
+// frSafeDiv computes a / b, returning errDivisionByZero if b is zero.
+func frSafeDiv(a, b fr.Element) (fr.Element, error) {
+	var zero fr.Element
+	if b == zero {
+		return zero, errDivisionByZero
+	}
 	var r fr.Element
 	r.Div(&a, &b)
-	return r
+	return r, nil
 }
 
 // convertProofPoint converts a split-encoded G1ProofPoint to a bn254.G1Affine.
 // In the proof format, x = x_0 | (x_1 << 136) and y = y_0 | (y_1 << 136).
-func convertProofPoint(p G1ProofPoint) bn254.G1Affine {
+// Returns an error if the resulting point is not on the BN254 G1 curve.
+func convertProofPoint(p G1ProofPoint) (bn254.G1Affine, error) {
 	shift := new(big.Int).Lsh(big.NewInt(1), 136)
 
 	x0 := new(big.Int)
@@ -110,7 +129,14 @@ func convertProofPoint(p G1ProofPoint) bn254.G1Affine {
 	var point bn254.G1Affine
 	point.X.SetBigInt(xBig)
 	point.Y.SetBigInt(yBig)
-	return point
+
+	// Allow the point at infinity (0,0) -- it's valid in some contexts.
+	var zeroFp bn254.G1Affine
+	if point != zeroFp && !point.IsOnCurve() {
+		return point, fmt.Errorf("honk: proof point (%s, %s) is not on BN254 G1 curve", xBig, yBig)
+	}
+
+	return point, nil
 }
 
 // negateG1 negates a G1 affine point (negate Y coordinate mod q).

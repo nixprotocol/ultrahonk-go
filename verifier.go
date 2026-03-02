@@ -21,6 +21,21 @@ var (
 	srsG2y1b = mustBigInt("22febda3c0c0632a56475b4214e5615e11e6dd3f96e6cea2854a87d4dacc5e55")
 )
 
+// Pre-computed SRS G2 points (initialized once).
+var srsG2Point1, srsG2Point2 bn254.G2Affine
+
+func init() {
+	srsG2Point1.X.A1.SetBigInt(srsG2x0)
+	srsG2Point1.X.A0.SetBigInt(srsG2x1)
+	srsG2Point1.Y.A1.SetBigInt(srsG2y0)
+	srsG2Point1.Y.A0.SetBigInt(srsG2y1)
+
+	srsG2Point2.X.A1.SetBigInt(srsG2x0b)
+	srsG2Point2.X.A0.SetBigInt(srsG2x1b)
+	srsG2Point2.Y.A1.SetBigInt(srsG2y0b)
+	srsG2Point2.Y.A0.SetBigInt(srsG2y1b)
+}
+
 // mustBigInt parses a hex string into a big.Int, panicking on failure.
 func mustBigInt(hex string) *big.Int {
 	v, ok := new(big.Int).SetString(hex, 16)
@@ -102,12 +117,32 @@ func LoadProof(proofBytes []byte) (*Proof, error) {
 	return p, nil
 }
 
+// validateVK checks that a verification key has valid parameters for use with Verify.
+func validateVK(vk *VerificationKey) error {
+	if vk.LogCircuitSize > ConstProofSizeLogN {
+		return fmt.Errorf("VK LogCircuitSize %d exceeds maximum %d", vk.LogCircuitSize, ConstProofSizeLogN)
+	}
+	if vk.LogCircuitSize == 0 {
+		return fmt.Errorf("VK LogCircuitSize must be > 0")
+	}
+	if vk.CircuitSize != (1 << vk.LogCircuitSize) {
+		return fmt.Errorf("VK CircuitSize %d does not match 2^LogCircuitSize (2^%d = %d)", vk.CircuitSize, vk.LogCircuitSize, 1<<vk.LogCircuitSize)
+	}
+	if vk.PublicInputsSize < PairingPointsSize {
+		return fmt.Errorf("VK PublicInputsSize %d < PairingPointsSize %d", vk.PublicInputsSize, PairingPointsSize)
+	}
+	return nil
+}
+
 // Verify verifies an UltraHonk proof against the given verification key and public inputs.
 // It returns (true, nil) if the proof is valid, (false, error) if verification fails or
 // inputs are malformed. The vk must not be nil.
 func Verify(vk *VerificationKey, proofBytes []byte, publicInputs []fr.Element) (bool, error) {
 	if vk == nil {
 		return false, fmt.Errorf("verification key must not be nil")
+	}
+	if err := validateVK(vk); err != nil {
+		return false, fmt.Errorf("invalid verification key: %w", err)
 	}
 	if len(proofBytes) != ProofSize*32 {
 		return false, fmt.Errorf("proof length wrong: expected %d, got %d", ProofSize*32, len(proofBytes))
@@ -124,19 +159,29 @@ func Verify(vk *VerificationKey, proofBytes []byte, publicInputs []fr.Element) (
 	}
 
 	// Generate Fiat-Shamir transcript
-	t := GenerateTranscript(proof, publicInputs, vk.CircuitSize, vk.PublicInputsSize, 1)
+	t := generateTranscript(proof, publicInputs, vk.CircuitSize, vk.PublicInputsSize, 1)
 
 	// Compute public input delta
-	t.RelationParams.PublicInputsDelta = computePublicInputDelta(publicInputs, &proof.PairingPointObject, &t.RelationParams, vk)
+	delta, err := computePublicInputDelta(publicInputs, &proof.PairingPointObject, &t.RelationParams, vk)
+	if err != nil {
+		return false, fmt.Errorf("public input delta: %w", err)
+	}
+	t.RelationParams.PublicInputsDelta = delta
 
 	// Verify sumcheck
-	sumcheckOk := verifySumcheck(proof, &t, vk.LogCircuitSize)
+	sumcheckOk, err := verifySumcheck(proof, &t, vk.LogCircuitSize)
+	if err != nil {
+		return false, fmt.Errorf("sumcheck: %w", err)
+	}
 	if !sumcheckOk {
 		return false, fmt.Errorf("sumcheck verification failed")
 	}
 
 	// Verify Shplemini/KZG
-	shpleminiOk := verifyShplemini(proof, vk, &t)
+	shpleminiOk, err := verifyShplemini(proof, vk, &t)
+	if err != nil {
+		return false, fmt.Errorf("shplemini: %w", err)
+	}
 	if !shpleminiOk {
 		return false, fmt.Errorf("shplemini verification failed")
 	}
@@ -144,12 +189,12 @@ func Verify(vk *VerificationKey, proofBytes []byte, publicInputs []fr.Element) (
 	return true, nil
 }
 
-func computePublicInputDelta(publicInputs []fr.Element, pairingPointObject *[PairingPointsSize]fr.Element, rp *RelationParameters, vk *VerificationKey) fr.Element {
+func computePublicInputDelta(publicInputs []fr.Element, pairingPointObject *[PairingPointsSize]fr.Element, rp *RelationParameters, vk *VerificationKey) (fr.Element, error) {
 	one := frFrom(1)
 	numerator := one
 	denominator := one
 
-	nPlusOffset := frFrom(N + 1) // offset = 1
+	nPlusOffset := frFrom(vk.CircuitSize + 1) // offset = 1
 	numeratorAcc := frAdd(rp.Gamma, frMul(rp.Beta, nPlusOffset))
 	denominatorAcc := frSub(rp.Gamma, frMul(rp.Beta, frFrom(2))) // offset + 1 = 2
 
@@ -168,10 +213,10 @@ func computePublicInputDelta(publicInputs []fr.Element, pairingPointObject *[Pai
 		denominatorAcc = frSub(denominatorAcc, rp.Beta)
 	}
 
-	return frDiv(numerator, denominator)
+	return frSafeDiv(numerator, denominator)
 }
 
-func verifySumcheck(proof *Proof, tp *Transcript, logN uint64) bool {
+func verifySumcheck(proof *Proof, tp *Transcript, logN uint64) (bool, error) {
 	var roundTarget fr.Element
 	powPartialEvaluation := frFrom(1)
 
@@ -181,25 +226,31 @@ func verifySumcheck(proof *Proof, tp *Transcript, logN uint64) bool {
 		// Check sum: u(0) + u(1) = target
 		totalSum := frAdd(roundUnivariate[0], roundUnivariate[1])
 		if totalSum != roundTarget {
-			return false
+			return false, nil
 		}
 
 		roundChallenge := tp.SumCheckUChallenges[round]
-		roundTarget = computeNextTargetSum(&roundUnivariate, roundChallenge)
+		var err error
+		roundTarget, err = computeNextTargetSum(&roundUnivariate, roundChallenge)
+		if err != nil {
+			return false, fmt.Errorf("sumcheck round %d: %w", round, err)
+		}
 		powPartialEvaluation = partiallyEvaluatePOW(tp.GateChallenges[round], powPartialEvaluation, roundChallenge)
 	}
 
-	grandHonkRelationSum := AccumulateRelationEvaluations(
+	grandHonkRelationSum := accumulateRelationEvaluations(
 		&proof.SumcheckEvaluations,
 		&tp.RelationParams,
 		&tp.Alphas,
 		powPartialEvaluation,
 	)
 
-	return grandHonkRelationSum == roundTarget
+	return grandHonkRelationSum == roundTarget, nil
 }
 
-// Barycentric Lagrange denominators for degree-7 polynomial evaluation.
+// barycentricLagrangeDenominators are precomputed denominators for degree-7
+// barycentric Lagrange interpolation over evaluation points {0,1,...,7}.
+// Each entry i = 1/prod_{j≠i}(i-j) mod r, matching Barretenberg's BARYCENTRIC_DOMAIN.
 var barycentricLagrangeDenominators = [BatchedRelationPartialLength]fr.Element{
 	mustFromHex("0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51"),
 	mustFromHex("0x00000000000000000000000000000000000000000000000000000000000002d0"),
@@ -211,7 +262,7 @@ var barycentricLagrangeDenominators = [BatchedRelationPartialLength]fr.Element{
 	mustFromHex("0x00000000000000000000000000000000000000000000000000000000000013b0"),
 }
 
-func computeNextTargetSum(roundUnivariates *[BatchedRelationPartialLength]fr.Element, roundChallenge fr.Element) fr.Element {
+func computeNextTargetSum(roundUnivariates *[BatchedRelationPartialLength]fr.Element, roundChallenge fr.Element) (fr.Element, error) {
 	// Barycentric evaluation: compute numerator = prod(challenge - i) for i = 0..7
 	numeratorValue := frFrom(1)
 	for i := 0; i < BatchedRelationPartialLength; i++ {
@@ -222,7 +273,11 @@ func computeNextTargetSum(roundUnivariates *[BatchedRelationPartialLength]fr.Ele
 	var denominatorInverses [BatchedRelationPartialLength]fr.Element
 	for i := 0; i < BatchedRelationPartialLength; i++ {
 		inv := frMul(barycentricLagrangeDenominators[i], frSub(roundChallenge, frFrom(uint64(i))))
-		denominatorInverses[i] = frInv(inv)
+		val, err := frInv(inv)
+		if err != nil {
+			return fr.Element{}, fmt.Errorf("barycentric denominator inverse at %d: %w", i, err)
+		}
+		denominatorInverses[i] = val
 	}
 
 	var targetSum fr.Element
@@ -231,7 +286,7 @@ func computeNextTargetSum(roundUnivariates *[BatchedRelationPartialLength]fr.Ele
 		targetSum = frAdd(targetSum, term)
 	}
 
-	return frMul(targetSum, numeratorValue)
+	return frMul(targetSum, numeratorValue), nil
 }
 
 func partiallyEvaluatePOW(gateChallenge, currentEvaluation, roundChallenge fr.Element) fr.Element {
@@ -255,14 +310,13 @@ func computeFoldPosEvaluations(
 	geminiEvaluations [ConstProofSizeLogN]fr.Element,
 	geminiEvalChallengePowers [ConstProofSizeLogN]fr.Element,
 	logSize uint64,
-) [ConstProofSizeLogN]fr.Element {
+) ([ConstProofSizeLogN]fr.Element, error) {
 	var foldPosEvaluations [ConstProofSizeLogN]fr.Element
 
 	for i := ConstProofSizeLogN; i > 0; i-- {
 		challengePower := geminiEvalChallengePowers[i-1]
 		u := sumcheckUChallenges[i-1]
 
-		// batchedEvalRoundAcc = (challengePower * batchedEvalAccumulator * 2 - geminiEvaluations[i-1] * (challengePower * (1 - u) - u))
 		two := frFrom(2)
 		one := frFrom(1)
 		oneMinusU := frSub(one, u)
@@ -273,7 +327,11 @@ func computeFoldPosEvaluations(
 		)
 
 		denominator := frAdd(frMul(challengePower, oneMinusU), u)
-		batchedEvalRoundAcc := frMul(numerator, frInv(denominator))
+		invDenom, err := frInv(denominator)
+		if err != nil {
+			return foldPosEvaluations, fmt.Errorf("fold pos evaluation inverse at %d: %w", i-1, err)
+		}
+		batchedEvalRoundAcc := frMul(numerator, invDenom)
 
 		if uint64(i) <= logSize {
 			batchedEvalAccumulator = batchedEvalRoundAcc
@@ -281,24 +339,39 @@ func computeFoldPosEvaluations(
 		}
 	}
 
-	return foldPosEvaluations
+	return foldPosEvaluations, nil
 }
 
-func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) bool {
+func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) (bool, error) {
 	powersOfEvalChallenge := computeSquares(tp.GeminiR)
 
 	scalars := make([]fr.Element, TotalCommitmentsSize)
 	commitments := make([]bn254.G1Affine, TotalCommitmentsSize)
 
-	posInvDenom := frInv(frSub(tp.ShplonkZ, powersOfEvalChallenge[0]))
-	negInvDenom := frInv(frAdd(tp.ShplonkZ, powersOfEvalChallenge[0]))
+	posInvDenom, err := frInv(frSub(tp.ShplonkZ, powersOfEvalChallenge[0]))
+	if err != nil {
+		return false, fmt.Errorf("shplemini posInvDenom: %w", err)
+	}
+	negInvDenom, err := frInv(frAdd(tp.ShplonkZ, powersOfEvalChallenge[0]))
+	if err != nil {
+		return false, fmt.Errorf("shplemini negInvDenom: %w", err)
+	}
+
+	geminiRInv, err := frInv(tp.GeminiR)
+	if err != nil {
+		return false, fmt.Errorf("shplemini geminiR inverse: %w", err)
+	}
 
 	unshiftedScalar := frAdd(posInvDenom, frMul(tp.ShplonkNu, negInvDenom))
-	shiftedScalar := frMul(frInv(tp.GeminiR), frSub(posInvDenom, frMul(tp.ShplonkNu, negInvDenom)))
+	shiftedScalar := frMul(geminiRInv, frSub(posInvDenom, frMul(tp.ShplonkNu, negInvDenom)))
 
 	// scalars[0] = 1, commitments[0] = shplonkQ
 	scalars[0] = frFrom(1)
-	commitments[0] = convertProofPoint(proof.ShplonkQ)
+	pt, err := convertProofPoint(proof.ShplonkQ)
+	if err != nil {
+		return false, fmt.Errorf("shplemini ShplonkQ: %w", err)
+	}
+	commitments[0] = pt
 
 	batchingChallenge := frFrom(1)
 	var batchedEvaluation fr.Element
@@ -348,31 +421,40 @@ func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) bool {
 	commitments[26] = vk.LagrangeFirst
 	commitments[27] = vk.LagrangeLast
 
-	// Proof commitments (28..34 unshifted, 35..39 shifted copies)
-	commitments[28] = convertProofPoint(proof.W1)
-	commitments[29] = convertProofPoint(proof.W2)
-	commitments[30] = convertProofPoint(proof.W3)
-	commitments[31] = convertProofPoint(proof.W4)
-	commitments[32] = convertProofPoint(proof.ZPerm)
-	commitments[33] = convertProofPoint(proof.LookupInverses)
-	commitments[34] = convertProofPoint(proof.LookupReadCounts)
-	commitments[35] = convertProofPoint(proof.LookupReadTags)
+	// Proof commitments (28..35 unshifted)
+	proofPoints := []G1ProofPoint{
+		proof.W1, proof.W2, proof.W3, proof.W4,
+		proof.ZPerm, proof.LookupInverses, proof.LookupReadCounts, proof.LookupReadTags,
+	}
+	for i, pp := range proofPoints {
+		pt, err := convertProofPoint(pp)
+		if err != nil {
+			return false, fmt.Errorf("shplemini proof commitment %d: %w", i, err)
+		}
+		commitments[28+i] = pt
+	}
 
-	// Shifted copies
-	commitments[36] = convertProofPoint(proof.W1)
-	commitments[37] = convertProofPoint(proof.W2)
-	commitments[38] = convertProofPoint(proof.W3)
-	commitments[39] = convertProofPoint(proof.W4)
-	commitments[40] = convertProofPoint(proof.ZPerm)
+	// Shifted copies (36..40)
+	shiftedPoints := []G1ProofPoint{proof.W1, proof.W2, proof.W3, proof.W4, proof.ZPerm}
+	for i, pp := range shiftedPoints {
+		pt, err := convertProofPoint(pp)
+		if err != nil {
+			return false, fmt.Errorf("shplemini shifted commitment %d: %w", i, err)
+		}
+		commitments[36+i] = pt
+	}
 
 	// Compute fold positive evaluations
-	foldPosEvaluations := computeFoldPosEvaluations(
+	foldPosEvaluations, err := computeFoldPosEvaluations(
 		tp.SumCheckUChallenges,
 		batchedEvaluation,
 		proof.GeminiAEvaluations,
 		powersOfEvalChallenge,
 		vk.LogCircuitSize,
 	)
+	if err != nil {
+		return false, err
+	}
 
 	// Constant term accumulator from A₀(±r)
 	constantTermAccumulator := frMul(foldPosEvaluations[0], posInvDenom)
@@ -384,8 +466,14 @@ func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) bool {
 		dummyRound := uint64(i) >= (vk.LogCircuitSize - 1)
 
 		if !dummyRound {
-			posInvDenom = frInv(frSub(tp.ShplonkZ, powersOfEvalChallenge[i+1]))
-			negInvDenom = frInv(frAdd(tp.ShplonkZ, powersOfEvalChallenge[i+1]))
+			posInvDenom, err = frInv(frSub(tp.ShplonkZ, powersOfEvalChallenge[i+1]))
+			if err != nil {
+				return false, fmt.Errorf("shplemini fold posInvDenom at %d: %w", i, err)
+			}
+			negInvDenom, err = frInv(frAdd(tp.ShplonkZ, powersOfEvalChallenge[i+1]))
+			if err != nil {
+				return false, fmt.Errorf("shplemini fold negInvDenom at %d: %w", i, err)
+			}
 
 			scalingFactorPos := frMul(batchingChallenge, posInvDenom)
 			scalingFactorNeg := frMul(frMul(batchingChallenge, tp.ShplonkNu), negInvDenom)
@@ -398,11 +486,13 @@ func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) bool {
 			constantTermAccumulator = frAdd(constantTermAccumulator, accumContribution)
 
 			batchingChallenge = frMul(batchingChallenge, frMul(tp.ShplonkNu, tp.ShplonkNu))
-		} else {
-			// scalar stays zero-initialized
 		}
 
-		commitments[NumberOfEntities+1+i] = convertProofPoint(proof.GeminiFoldComms[i])
+		foldPt, err := convertProofPoint(proof.GeminiFoldComms[i])
+		if err != nil {
+			return false, fmt.Errorf("shplemini fold commitment %d: %w", i, err)
+		}
+		commitments[NumberOfEntities+1+i] = foldPt
 	}
 
 	// [1]₁ with constantTermAccumulator
@@ -413,19 +503,22 @@ func verifyShplemini(proof *Proof, vk *VerificationKey, tp *Transcript) bool {
 	scalars[NumberOfEntities+ConstProofSizeLogN] = constantTermAccumulator
 
 	// KZG quotient commitment * shplonkZ
-	quotientCommitment := convertProofPoint(proof.KzgQuotient)
+	quotientCommitment, err := convertProofPoint(proof.KzgQuotient)
+	if err != nil {
+		return false, fmt.Errorf("shplemini KZG quotient: %w", err)
+	}
 	commitments[NumberOfEntities+ConstProofSizeLogN+1] = quotientCommitment
 	scalars[NumberOfEntities+ConstProofSizeLogN+1] = tp.ShplonkZ
 
 	// Multi-scalar multiplication
 	P0, err := batchMul(commitments, scalars)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("MSM: %w", err)
 	}
 
 	P1 := negateG1(quotientCommitment)
 
-	return pairingCheck(P0, P1)
+	return pairingCheck(P0, P1), nil
 }
 
 func batchMul(points []bn254.G1Affine, scalars []fr.Element) (bn254.G1Affine, error) {
@@ -440,27 +533,13 @@ func batchMul(points []bn254.G1Affine, scalars []fr.Element) (bn254.G1Affine, er
 	return result, nil
 }
 
+// pairingCheck verifies e(rhs, g2Point1) * e(lhs, g2Point2) == 1.
+// Errors from PairingCheck (degenerate inputs) are treated as verification failure,
+// since all G1 inputs have been validated on-curve before reaching this point.
 func pairingCheck(rhs, lhs bn254.G1Affine) bool {
-	// Set up G2 points from SRS
-	var g2Point1, g2Point2 bn254.G2Affine
-
-	// G2 point 1 (fixed from SRS)
-	// EIP-197 encoding: x_im(A1), x_re(A0), y_im(A1), y_re(A0)
-	g2Point1.X.A1.SetBigInt(srsG2x0)
-	g2Point1.X.A0.SetBigInt(srsG2x1)
-	g2Point1.Y.A1.SetBigInt(srsG2y0)
-	g2Point1.Y.A0.SetBigInt(srsG2y1)
-
-	// G2 point 2 (from VK/SRS)
-	g2Point2.X.A1.SetBigInt(srsG2x0b)
-	g2Point2.X.A0.SetBigInt(srsG2x1b)
-	g2Point2.Y.A1.SetBigInt(srsG2y0b)
-	g2Point2.Y.A0.SetBigInt(srsG2y1b)
-
-	// PairingCheck verifies e(rhs, g2Point1) * e(lhs, g2Point2) == 1
 	ok, err := bn254.PairingCheck(
 		[]bn254.G1Affine{rhs, lhs},
-		[]bn254.G2Affine{g2Point1, g2Point2},
+		[]bn254.G2Affine{srsG2Point1, srsG2Point2},
 	)
 	if err != nil {
 		return false

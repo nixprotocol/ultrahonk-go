@@ -133,3 +133,71 @@ func TestVerify_ZeroPublicInputs(t *testing.T) {
 		t.Fatal("proof with zero public inputs should not verify")
 	}
 }
+
+func TestVerify_InvalidVK_LogCircuitSizeTooLarge(t *testing.T) {
+	proofBytes := loadTestProof(t)
+	inputs := loadTestPublicInputs()
+
+	vk := DepositVerificationKey()
+	vk.LogCircuitSize = ConstProofSizeLogN + 1
+	vk.CircuitSize = 1 << vk.LogCircuitSize
+
+	_, err := Verify(&vk, proofBytes, inputs)
+	if err == nil {
+		t.Fatal("expected error for LogCircuitSize > ConstProofSizeLogN")
+	}
+}
+
+func TestVerify_InvalidVK_PublicInputsSizeTooSmall(t *testing.T) {
+	proofBytes := loadTestProof(t)
+	inputs := loadTestPublicInputs()
+
+	vk := DepositVerificationKey()
+	vk.PublicInputsSize = PairingPointsSize - 1
+
+	_, err := Verify(&vk, proofBytes, inputs)
+	if err == nil {
+		t.Fatal("expected error for PublicInputsSize < PairingPointsSize")
+	}
+}
+
+func TestVerify_InvalidVK_CircuitSizeMismatch(t *testing.T) {
+	proofBytes := loadTestProof(t)
+	inputs := loadTestPublicInputs()
+
+	vk := DepositVerificationKey()
+	vk.CircuitSize = 9000 // not 2^13
+
+	_, err := Verify(&vk, proofBytes, inputs)
+	if err == nil {
+		t.Fatal("expected error for CircuitSize != 2^LogCircuitSize")
+	}
+}
+
+func TestDeserializeVK_RoundTrip(t *testing.T) {
+	vk := DepositVerificationKey()
+	data, err := SerializeVK(&vk)
+	if err != nil {
+		t.Fatalf("SerializeVK: %v", err)
+	}
+
+	vk2, err := DeserializeVK(data)
+	if err != nil {
+		t.Fatalf("DeserializeVK: %v", err)
+	}
+
+	if vk.CircuitSize != vk2.CircuitSize || vk.LogCircuitSize != vk2.LogCircuitSize || vk.PublicInputsSize != vk2.PublicInputsSize {
+		t.Fatal("deserialized VK header fields do not match")
+	}
+
+	// Verify with deserialized VK
+	proofBytes := loadTestProof(t)
+	inputs := loadTestPublicInputs()
+	verified, err := Verify(vk2, proofBytes, inputs)
+	if err != nil {
+		t.Fatalf("verification with deserialized VK: %v", err)
+	}
+	if !verified {
+		t.Fatal("proof should verify with deserialized VK")
+	}
+}

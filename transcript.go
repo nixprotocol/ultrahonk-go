@@ -34,19 +34,9 @@ func keccakHash(elements []fr.Element) fr.Element {
 	return result
 }
 
-// keccakHashBytes computes keccak256 over raw byte slices (for mixed-type packing).
-func keccakHashBytes(data []byte) fr.Element {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(data)
-	var digest [32]byte
-	h.Sum(digest[:0])
-	var result fr.Element
-	result.SetBytes(digest[:])
-	return result
-}
-
-// GenerateTranscript generates the full Fiat-Shamir transcript from a proof and public inputs.
-func GenerateTranscript(proof *Proof, publicInputs []fr.Element, circuitSize, publicInputsSize, pubInputsOffset uint64) Transcript {
+// generateTranscript generates the full Fiat-Shamir transcript from a proof and public inputs.
+// The publicInputsSize must equal len(publicInputs) + PairingPointsSize.
+func generateTranscript(proof *Proof, publicInputs []fr.Element, circuitSize, publicInputsSize, pubInputsOffset uint64) Transcript {
 	var t Transcript
 	var prevChallenge fr.Element
 
@@ -62,7 +52,7 @@ func GenerateTranscript(proof *Proof, publicInputs []fr.Element, circuitSize, pu
 	return t
 }
 
-func generateRelationParametersChallenges(proof *Proof, publicInputs []fr.Element, circuitSize, publicInputsSize, pubInputsOffset uint64, ) (RelationParameters, fr.Element) {
+func generateRelationParametersChallenges(proof *Proof, publicInputs []fr.Element, circuitSize, publicInputsSize, pubInputsOffset uint64) (RelationParameters, fr.Element) {
 	var rp RelationParameters
 	var prevChallenge fr.Element
 
@@ -74,8 +64,10 @@ func generateRelationParametersChallenges(proof *Proof, publicInputs []fr.Elemen
 
 func generateEtaChallenge(proof *Proof, publicInputs []fr.Element, circuitSize, publicInputsSize, pubInputsOffset uint64) (eta, etaTwo, etaThree, prevChallenge fr.Element) {
 	// round0: circuitSize, publicInputsSize, pubInputsOffset, publicInputs (non-pairing), pairing objects, w1-w3 commitments
-	numRealPubInputs := publicInputsSize - PairingPointsSize
-	round0Size := 3 + publicInputsSize + 12
+	// publicInputsSize is already validated by Verify() to be >= PairingPointsSize
+	// and len(publicInputs) == publicInputsSize - PairingPointsSize
+	numRealPubInputs := uint64(len(publicInputs))
+	round0Size := 3 + numRealPubInputs + PairingPointsSize + 12
 	round0 := make([]fr.Element, round0Size)
 
 	round0[0] = frFrom(circuitSize)
@@ -89,7 +81,7 @@ func generateEtaChallenge(proof *Proof, publicInputs []fr.Element, circuitSize, 
 		round0[3+numRealPubInputs+i] = proof.PairingPointObject[i]
 	}
 
-	base := 3 + publicInputsSize
+	base := 3 + numRealPubInputs + PairingPointsSize
 	round0[base+0] = proof.W1.X0
 	round0[base+1] = proof.W1.X1
 	round0[base+2] = proof.W1.Y0

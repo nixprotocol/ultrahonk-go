@@ -70,7 +70,6 @@ vk, err := honk.DeserializeVK(data)
 | `LoadProof(proofBytes)` | Deserialize raw bytes into a structured Proof |
 | `SerializeVK(vk)` | Serialize a VerificationKey to bytes |
 | `DeserializeVK(data)` | Deserialize bytes into a VerificationKey |
-| `GenerateTranscript(proof, inputs, ...)` | Generate the Fiat-Shamir transcript |
 | `DepositVerificationKey()` | Returns the built-in deposit circuit VK |
 
 ## Proof Format
@@ -100,10 +99,9 @@ Proofs are 14,592 bytes (456 field elements x 32 bytes each), containing:
 Apple M1 Pro:
 
 ```
-BenchmarkVerify               705    1.65 ms/op    78 KB/op    539 allocs/op
-BenchmarkLoadProof          99094   12.3 us/op     16 KB/op      1 allocs/op
-BenchmarkGenerateTranscript 13290   96.2 us/op    1.8 KB/op     61 allocs/op
-BenchmarkSerializeVK      1000000    1.0 us/op    1.8 KB/op      1 allocs/op
+BenchmarkVerify            705    1.65 ms/op    78 KB/op    539 allocs/op
+BenchmarkLoadProof       99094   12.3 us/op     16 KB/op      1 allocs/op
+BenchmarkSerializeVK   1000000    1.0 us/op    1.8 KB/op      1 allocs/op
 ```
 
 ## Compatibility

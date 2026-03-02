@@ -59,6 +59,12 @@ func DeserializeVK(data []byte) (*VerificationKey, error) {
 		}
 		offset += 64
 	}
+
+	// Validate VK parameters
+	if err := validateVK(vk); err != nil {
+		return nil, fmt.Errorf("deserialized VK invalid: %w", err)
+	}
+
 	return vk, nil
 }
 
@@ -89,7 +95,8 @@ func vkPointPtrs(vk *VerificationKey) []*bn254.G1Affine {
 }
 
 // mustG1FromHex parses hex-encoded x, y coordinates into a G1Affine point,
-// panicking on invalid input. Used only for compile-time VK constants.
+// panicking on invalid input or if the point is not on the curve.
+// Used only for compile-time VK constants.
 func mustG1FromHex(xHex, yHex string) bn254.G1Affine {
 	var p bn254.G1Affine
 	x, ok := new(big.Int).SetString(xHex[2:], 16)
@@ -102,10 +109,14 @@ func mustG1FromHex(xHex, yHex string) bn254.G1Affine {
 	}
 	p.X.SetBigInt(x)
 	p.Y.SetBigInt(y)
+	if !p.IsOnCurve() {
+		panic(fmt.Sprintf("honk: G1 point (%s, %s) is not on BN254 curve", xHex, yHex))
+	}
 	return p
 }
 
-// DepositVerificationKey returns the hardcoded verification key for the deposit circuit.
+// DepositVerificationKey returns the hardcoded verification key for the NixProtocol
+// deposit circuit (N=8192, 8 public inputs). Generated from Barretenberg v0.63.
 func DepositVerificationKey() VerificationKey {
 	return VerificationKey{
 		CircuitSize:      8192,

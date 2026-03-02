@@ -49,7 +49,7 @@ func BenchmarkGenerateTranscript(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GenerateTranscript(proof, inputs, 8192, 24, 1)
+		generateTranscript(proof, inputs, 8192, 24, 1)
 	}
 }
 

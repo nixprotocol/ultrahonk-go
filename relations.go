@@ -9,8 +9,8 @@ func wire(p *[NumberOfEntities]fr.Element, w int) fr.Element {
 	return p[w]
 }
 
-// AccumulateRelationEvaluations computes the full Honk relation accumulator.
-func AccumulateRelationEvaluations(
+// accumulateRelationEvaluations computes the full Honk relation accumulator.
+func accumulateRelationEvaluations(
 	p *[NumberOfEntities]fr.Element,
 	rp *RelationParameters,
 	alphas *[NumberOfAlphas]fr.Element,
