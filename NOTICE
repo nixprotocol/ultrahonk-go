@@ -1,0 +1,8 @@
+UltraHonk Go Verifier
+Copyright 2025 NixProtocol (https://nixprotocol.com)
+
+This product was originally developed by NixProtocol as part of its
+privacy infrastructure. It is the first pure-Go implementation of the
+Aztec UltraHonk proof verification protocol.
+
+Licensed under the Apache License, Version 2.0.
