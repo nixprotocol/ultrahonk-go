@@ -6,9 +6,6 @@ import (
 )
 
 const (
-	N                              = 8192
-	LogN                           = 13
-	NumberOfPublicInputs           = 24
 	ConstProofSizeLogN             = 28
 	NumberOfSubrelations           = 26
 	BatchedRelationPartialLength   = 8

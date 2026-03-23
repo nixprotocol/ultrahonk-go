@@ -29,7 +29,7 @@ func FuzzVerify(f *testing.F) {
 	f.Add(loadFuzzSeedProof(f))
 	f.Add(make([]byte, ProofSize*32))
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -39,7 +39,7 @@ func FuzzVerify(f *testing.F) {
 
 // FuzzDeserializeVK confirms that no input can cause DeserializeVK to panic.
 func FuzzDeserializeVK(f *testing.F) {
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	validData, _ := SerializeVK(&vk)
 	f.Add(validData)
 	f.Add(make([]byte, VKSerializedSize))
@@ -62,10 +62,22 @@ func FuzzLoadProof(f *testing.F) {
 func FuzzVerifyWithInputs(f *testing.F) {
 	f.Add(loadFuzzSeedProof(f), uint8(8))
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 
 	f.Fuzz(func(t *testing.T, data []byte, numInputs uint8) {
 		inputs := make([]fr.Element, numInputs)
 		Verify(&vk, data, inputs)
+	})
+}
+
+// FuzzDeserializeVKFromBarretenberg confirms that no input can cause DeserializeVKFromBarretenberg to panic.
+func FuzzDeserializeVKFromBarretenberg(f *testing.F) {
+	vk := depositVerificationKey()
+	validData := serializeVKToBarretenberg(&vk)
+	f.Add(validData)
+	f.Add(make([]byte, BBVKSize))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		DeserializeVKFromBarretenberg(data)
 	})
 }

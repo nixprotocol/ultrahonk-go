@@ -54,7 +54,7 @@ func TestVerify_NilVK(t *testing.T) {
 }
 
 func TestVerify_WrongProofLength(t *testing.T) {
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	_, err := Verify(&vk, make([]byte, 100), inputs)
@@ -65,7 +65,7 @@ func TestVerify_WrongProofLength(t *testing.T) {
 
 func TestVerify_WrongPublicInputsCount(t *testing.T) {
 	proofBytes := loadTestProof(t)
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 
 	// Pass wrong number of public inputs
 	inputs := make([]fr.Element, 3) // should be 8
@@ -77,7 +77,7 @@ func TestVerify_WrongPublicInputsCount(t *testing.T) {
 
 func TestVerify_TamperedProof(t *testing.T) {
 	proofBytes := loadTestProof(t)
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	// Tamper with the proof by flipping bytes
@@ -95,7 +95,7 @@ func TestVerify_TamperedProof(t *testing.T) {
 
 func TestVerify_TamperedPublicInputs(t *testing.T) {
 	proofBytes := loadTestProof(t)
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	// Tamper with the first public input
@@ -108,7 +108,7 @@ func TestVerify_TamperedPublicInputs(t *testing.T) {
 }
 
 func TestVerify_RandomProof(t *testing.T) {
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	// Generate completely random proof bytes
@@ -123,7 +123,7 @@ func TestVerify_RandomProof(t *testing.T) {
 
 func TestVerify_ZeroPublicInputs(t *testing.T) {
 	proofBytes := loadTestProof(t)
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 
 	// All-zero public inputs (valid count but wrong values)
 	inputs := make([]fr.Element, 8)
@@ -138,7 +138,7 @@ func TestVerify_InvalidVK_LogCircuitSizeTooLarge(t *testing.T) {
 	proofBytes := loadTestProof(t)
 	inputs := loadTestPublicInputs()
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	vk.LogCircuitSize = ConstProofSizeLogN + 1
 	vk.CircuitSize = 1 << vk.LogCircuitSize
 
@@ -152,7 +152,7 @@ func TestVerify_InvalidVK_PublicInputsSizeTooSmall(t *testing.T) {
 	proofBytes := loadTestProof(t)
 	inputs := loadTestPublicInputs()
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	vk.PublicInputsSize = PairingPointsSize - 1
 
 	_, err := Verify(&vk, proofBytes, inputs)
@@ -165,7 +165,7 @@ func TestVerify_InvalidVK_CircuitSizeMismatch(t *testing.T) {
 	proofBytes := loadTestProof(t)
 	inputs := loadTestPublicInputs()
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	vk.CircuitSize = 9000 // not 2^13
 
 	_, err := Verify(&vk, proofBytes, inputs)
@@ -175,7 +175,7 @@ func TestVerify_InvalidVK_CircuitSizeMismatch(t *testing.T) {
 }
 
 func TestDeserializeVK_RoundTrip(t *testing.T) {
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	data, err := SerializeVK(&vk)
 	if err != nil {
 		t.Fatalf("SerializeVK: %v", err)

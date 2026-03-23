@@ -24,7 +24,7 @@ func loadBenchProof(b *testing.B) []byte {
 
 func BenchmarkVerify(b *testing.B) {
 	proofBytes := loadBenchProof(b)
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 	inputs := loadTestPublicInputs()
 
 	b.ResetTimer()
@@ -47,14 +47,15 @@ func BenchmarkGenerateTranscript(b *testing.B) {
 	proof, _ := LoadProof(proofBytes)
 	inputs := loadTestPublicInputs()
 
+	vk := depositVerificationKey()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		generateTranscript(proof, inputs, 8192, 24, 1)
+		generateTranscript(proof, inputs, vk.CircuitSize, vk.PublicInputsSize, 1)
 	}
 }
 
 func BenchmarkSerializeVK(b *testing.B) {
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

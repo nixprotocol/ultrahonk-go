@@ -67,7 +67,7 @@ func TestVerifyDepositProof(t *testing.T) {
 		publicInputs[i].SetString(h)
 	}
 
-	vk := DepositVerificationKey()
+	vk := depositVerificationKey()
 
 	verified, err := Verify(&vk, proofBytes, publicInputs)
 	if err != nil {
