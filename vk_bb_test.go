@@ -21,7 +21,7 @@ func serializeVKToBarretenberg(vk *VerificationKey) []byte {
 	binary.BigEndian.PutUint64(buf[0:8], vk.CircuitSize)
 	binary.BigEndian.PutUint64(buf[8:16], vk.LogCircuitSize)
 	binary.BigEndian.PutUint64(buf[16:24], vk.PublicInputsSize) // BB includes pairing points in count
-	binary.BigEndian.PutUint64(buf[24:32], 1) // pub_inputs_offset = 1
+	binary.BigEndian.PutUint64(buf[24:32], 1)                   // pub_inputs_offset = 1
 
 	// Barretenberg canonical G1 point order (differs from library's vkPoints order).
 	bbOrder := vkPointPtrsBBOrder(vk)
@@ -134,9 +134,9 @@ func TestDeserializeVKFromBarretenberg_OverflowLogCircuitSize(t *testing.T) {
 	// logCircuitSize = 64 would overflow 1 << 64. Must be rejected.
 	buf := make([]byte, BBVKSize)
 	binary.BigEndian.PutUint64(buf[0:8], 0)   // circuit_size (will mismatch)
-	binary.BigEndian.PutUint64(buf[8:16], 64)  // logCircuitSize = 64
-	binary.BigEndian.PutUint64(buf[16:24], 8)  // num_public_inputs
-	binary.BigEndian.PutUint64(buf[24:32], 1)  // pub_inputs_offset
+	binary.BigEndian.PutUint64(buf[8:16], 64) // logCircuitSize = 64
+	binary.BigEndian.PutUint64(buf[16:24], 8) // num_public_inputs
+	binary.BigEndian.PutUint64(buf[24:32], 1) // pub_inputs_offset
 
 	_, err := DeserializeVKFromBarretenberg(buf)
 	if err == nil {
@@ -147,7 +147,7 @@ func TestDeserializeVKFromBarretenberg_OverflowLogCircuitSize(t *testing.T) {
 func TestDeserializeVKFromBarretenberg_LogCircuitSizeAboveMax(t *testing.T) {
 	buf := make([]byte, BBVKSize)
 	binary.BigEndian.PutUint64(buf[0:8], 1<<29)
-	binary.BigEndian.PutUint64(buf[8:16], 29)  // max is 28
+	binary.BigEndian.PutUint64(buf[8:16], 29) // max is 28
 	binary.BigEndian.PutUint64(buf[16:24], 8)
 	binary.BigEndian.PutUint64(buf[24:32], 1)
 

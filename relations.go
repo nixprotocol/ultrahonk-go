@@ -201,7 +201,7 @@ func accumulateEllipticRelation(p *[NumberOfEntities]fr.Element, evals *[NumberO
 
 func accumulateAuxiliaryRelation(p *[NumberOfEntities]fr.Element, rp *RelationParameters, evals *[NumberOfSubrelations]fr.Element, domainSep fr.Element) {
 	limbSize := mustFromHex("0x100000000000000000") // 1 << 68
-	sublimbShift := mustFromHex("0x4000")            // 1 << 14
+	sublimbShift := mustFromHex("0x4000")           // 1 << 14
 	minusOne := frNeg(frFrom(1))
 
 	// Non-native field gate
